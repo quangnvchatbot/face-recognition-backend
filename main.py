@@ -2,35 +2,16 @@ import os
 import json
 import time
 import random
+import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import firebase_admin
-from firebase_admin import db, credentials
-from dotenv import load_dotenv
-
-load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
 
-# Initialize Firebase
-firebase_cred_str = os.getenv('FIREBASE_CREDENTIALS')
-firebase_db_url = os.getenv('FIREBASE_DB_URL', 'https://serious-hold-468214-u2-default-rtdb.asia-southeast1.firebasedatabase.app')
-
-if not firebase_cred_str:
-    print("ERROR: FIREBASE_CREDENTIALS not found")
-else:
-    try:
-        firebase_cred = json.loads(firebase_cred_str)
-        cred = credentials.Certificate(firebase_cred)
-        firebase_admin.initialize_app(cred, {
-            'databaseURL': firebase_db_url
-        })
-        print("Firebase initialized")
-    except Exception as e:
-        print(f"Firebase error: {e}")
-
-database = db.reference()
+# Firebase config từ environment
+FIREBASE_DB_URL = os.getenv('FIREBASE_DB_URL', 'https://serious-hold-468214-u2-default-rtdb.asia-southeast1.firebasedatabase.app')
+FIREBASE_API_KEY = os.getenv('FIREBASE_API_KEY', '')
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -51,10 +32,17 @@ def recognize():
                 "message": "Missing eventId"
             }), 400
         
-        # Get persons from Firebase
-        persons_ref = database.child('persons')
-        persons_snapshot = persons_ref.get()
-        persons = persons_snapshot.val() if persons_snapshot.val() else {}
+        # Get persons from Firebase (HTTP request)
+        persons_url = f"{FIREBASE_DB_URL}/persons.json"
+        persons_response = requests.get(persons_url, timeout=5)
+        
+        if persons_response.status_code != 200:
+            return jsonify({
+                "status": "error",
+                "message": "Failed to fetch persons"
+            }), 500
+        
+        persons = persons_response.json() or {}
         
         if not persons:
             return jsonify({
@@ -62,17 +50,19 @@ def recognize():
                 "message": "No persons in database"
             }), 404
         
-        # Random person (temporary)
+        # Random person (temporary - tạm thời)
         person_ids = list(persons.keys())
         random_person_id = random.choice(person_ids)
         matched_person = persons[random_person_id]
         
         # Check duplicate
-        checkins_ref = database.child('events').child(event_id).child('checkins')
-        checkins_snapshot = checkins_ref.get()
-        checkins = checkins_snapshot.val() if checkins_snapshot.val() else {}
+        checkins_url = f"{FIREBASE_DB_URL}/events/{event_id}/checkins.json"
+        checkins_response = requests.get(checkins_url, timeout=5)
         
-        for checkin_id, checkin in checkins.items():
+        checkins = checkins_response.json() if checkins_response.status_code == 200 else {}
+        
+        # Check if person already checked in
+        for checkin_id, checkin in (checkins.items() if isinstance(checkins, dict) else []):
             if checkin.get('person_id') == random_person_id:
                 return jsonify({
                     "status": "duplicate",
@@ -92,7 +82,15 @@ def recognize():
             "image_url": matched_person.get('image_url')
         }
         
-        checkins_ref.child(checkin_id).set(checkin_data)
+        # POST to Firebase
+        post_url = f"{FIREBASE_DB_URL}/events/{event_id}/checkins/{checkin_id}.json"
+        post_response = requests.put(post_url, json=checkin_data, timeout=5)
+        
+        if post_response.status_code not in [200, 201]:
+            return jsonify({
+                "status": "error",
+                "message": "Failed to create checkin"
+            }), 500
         
         return jsonify({
             "status": "success",
@@ -114,15 +112,16 @@ def recognize():
 @app.route('/api/events/<event_id>/checkins', methods=['GET'])
 def get_checkins(event_id):
     try:
-        checkins_ref = database.child('events').child(event_id).child('checkins')
-        checkins_snapshot = checkins_ref.get()
-        checkins = checkins_snapshot.val() if checkins_snapshot.val() else {}
+        checkins_url = f"{FIREBASE_DB_URL}/events/{event_id}/checkins.json"
+        response = requests.get(checkins_url, timeout=5)
+        
+        checkins = response.json() if response.status_code == 200 else {}
         
         return jsonify({
             "status": "success",
             "event_id": event_id,
             "checkins": checkins,
-            "count": len(checkins)
+            "count": len(checkins) if isinstance(checkins, dict) else 0
         }), 200
     except Exception as error:
         return jsonify({
