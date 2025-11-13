@@ -62,22 +62,25 @@ def recognize():
         checkins = checkins_response.json() if checkins_response.status_code == 200 else {}
         
         # Check if person already checked in
-        for checkin_id, checkin in (checkins.items() if isinstance(checkins, dict) else []):
-            if checkin.get('person_id') == random_person_id:
-                return jsonify({
-                    "status": "duplicate",
-                    "person_id": random_person_id,
-                    "person_name": matched_person.get('name'),
-                    "message": "Already checked in"
-                }), 409
+        if isinstance(checkins, dict):
+            for checkin_id, checkin in checkins.items():
+                if isinstance(checkin, dict) and checkin.get('person_id') == random_person_id:
+                    return jsonify({
+                        "status": "duplicate",
+                        "person_id": random_person_id,
+                        "person_name": matched_person.get('name'),
+                        "position": matched_person.get('position'),
+                        "department": matched_person.get('department'),
+                        "message": "Already checked in"
+                    }), 200  # Changed from 409 to 200 - frontend will handle status field
         
         # Create checkin
         checkin_id = f"checkin_{int(time.time() * 1000)}"
         checkin_data = {
             "person_id": random_person_id,
             "person_name": matched_person.get('name'),
-            "position": matched_person.get('position'),
-            "department": matched_person.get('department'),
+            "position": matched_person.get('position', 'N/A'),
+            "department": matched_person.get('department', 'N/A'),
             "timestamp": int(time.time() * 1000),
             "image_url": matched_person.get('image_url')
         }
@@ -96,8 +99,8 @@ def recognize():
             "status": "success",
             "person_id": random_person_id,
             "person_name": matched_person.get('name'),
-            "position": matched_person.get('position'),
-            "department": matched_person.get('department'),
+            "position": matched_person.get('position', 'N/A'),
+            "department": matched_person.get('department', 'N/A'),
             "confidence": 0.95,
             "message": "Checkin successful"
         }), 200
@@ -115,18 +118,33 @@ def get_checkins(event_id):
         checkins_url = f"{FIREBASE_DB_URL}/events/{event_id}/checkins.json"
         response = requests.get(checkins_url, timeout=5)
         
-        checkins = response.json() if response.status_code == 200 else {}
+        checkins_dict = response.json() if response.status_code == 200 else {}
+        
+        # FIX: Convert dict to list for frontend
+        checkins_list = []
+        if isinstance(checkins_dict, dict):
+            for checkin_id, checkin_data in checkins_dict.items():
+                if isinstance(checkin_data, dict):
+                    # Add checkin_id to the object for reference
+                    checkin_item = {
+                        "checkin_id": checkin_id,
+                        **checkin_data
+                    }
+                    checkins_list.append(checkin_item)
         
         return jsonify({
             "status": "success",
             "event_id": event_id,
-            "checkins": checkins,
-            "count": len(checkins) if isinstance(checkins, dict) else 0
+            "checkins": checkins_list,  # Now it's a list!
+            "count": len(checkins_list)
         }), 200
     except Exception as error:
+        print(f"Error in get_checkins: {error}")
         return jsonify({
             "status": "error",
-            "message": str(error)
+            "message": str(error),
+            "checkins": [],  # Return empty list on error
+            "count": 0
         }), 500
 
 if __name__ == '__main__':
