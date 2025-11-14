@@ -193,12 +193,30 @@ def find_matching_person(face_embedding):
 
 # ============ API ENDPOINTS ============
 
+@app.route('/')
+def home():
+    """Root endpoint for health check"""
+    return jsonify({
+        "status": "running",
+        "service": "Face Recognition API",
+        "version": "1.0",
+        "face_recognition_available": FACE_RECOGNITION_AVAILABLE,
+        "endpoints": {
+            "health": "/health",
+            "recognize": "/api/recognize",
+            "train": "/api/train-customer",
+            "rate_limit_info": "/api/rate-limit-info"
+        }
+    })
+
 @app.route('/health', methods=['GET'])
 def health():
+    """Health check endpoint"""
     return jsonify({
         "status": "ok",
         "face_recognition": FACE_RECOGNITION_AVAILABLE,
-        "timestamp": time.time()
+        "timestamp": time.time(),
+        "environment": os.getenv('RAILWAY_ENVIRONMENT', 'development')
     }), 200
 
 @app.route('/api/recognize', methods=['POST', 'OPTIONS'])
@@ -386,8 +404,11 @@ def train_customer():
 @app.route('/api/batch/recognize', methods=['POST'])
 @limiter.limit("5 per minute")
 def batch_recognize():
-    # ... implementation for batch recognition
-    return jsonify({"status": "not_implemented"}), 501
+    """Batch recognition endpoint - placeholder"""
+    return jsonify({
+        "status": "not_implemented", 
+        "message": "Batch recognition will be available soon"
+    }), 501
 
 @app.route('/api/rate-limit-info', methods=['GET'])
 def rate_limit_info():
@@ -412,8 +433,9 @@ def ratelimit_handler(e):
     }), 429
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5000))
+    port = int(os.getenv('PORT', 8080))  # ✅ SỬA PORT: 5000 → 8080
     print(f"🚀 Starting Face Recognition Server on port {port}")
     print(f"🔧 Face recognition available: {FACE_RECOGNITION_AVAILABLE}")
     print(f"📊 Firebase URL: {FIREBASE_DB_URL}")
+    print(f"🌐 Environment: {os.getenv('RAILWAY_ENVIRONMENT', 'development')}")
     app.run(host='0.0.0.0', port=port, debug=False)
